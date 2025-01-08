@@ -5,7 +5,6 @@ import platform
 import urllib.request
 import urllib.error
 import http.client
-from unittest import mock
 
 import pytest
 
@@ -186,49 +185,53 @@ class TestPackageIndex:
             assert dists[0].version == ''
             assert dists[1].version == vc
 
-    def test_download_git_with_rev(self, tmpdir):
+    def test_download_git_with_rev(self, tmp_path, fake_process):
         url = 'git+https://github.example/group/project@master#egg=foo'
         index = setuptools.package_index.PackageIndex()
 
-        with mock.patch("os.system") as os_system_mock:
-            result = index.download(url, str(tmpdir))
+        expected_dir = tmp_path / 'project@master'
+        fake_process.register_subprocess([
+            'git',
+            'clone',
+            '--quiet',
+            'https://github.example/group/project',
+            str(expected_dir),
+        ])
+        fake_process.register_subprocess([
+            'git',
+            '-C',
+            str(expected_dir),
+            'checkout',
+            '--quiet',
+            'master'
+        ])
 
-        os_system_mock.assert_called()
+        result = index.download(url, tmp_path)
 
-        expected_dir = str(tmpdir / 'project@master')
-        expected = (
-            'git clone --quiet ' 'https://github.example/group/project {expected_dir}'
-        ).format(**locals())
-        first_call_args = os_system_mock.call_args_list[0][0]
-        assert first_call_args == (expected,)
+        assert result == str(expected_dir)
+        assert len(fake_process.calls) == 2
 
-        tmpl = 'git -C {expected_dir} checkout --quiet master'
-        expected = tmpl.format(**locals())
-        assert os_system_mock.call_args_list[1][0] == (expected,)
-        assert result == expected_dir
-
-    def test_download_git_no_rev(self, tmpdir):
+    def test_download_git_no_rev(self, tmp_path, fake_process):
         url = 'git+https://github.example/group/project#egg=foo'
         index = setuptools.package_index.PackageIndex()
 
-        with mock.patch("os.system") as os_system_mock:
-            result = index.download(url, str(tmpdir))
+        expected_dir = tmp_path / 'project'
+        fake_process.register_subprocess([
+            'git',
+            'clone',
+            '--quiet',
+            'https://github.example/group/project',
+            str(expected_dir),
+        ])
+        index.download(url, tmp_path)
 
-        os_system_mock.assert_called()
-
-        expected_dir = str(tmpdir / 'project')
-        expected = (
-            'git clone --quiet ' 'https://github.example/group/project {expected_dir}'
-        ).format(**locals())
-        os_system_mock.assert_called_once_with(expected)
-
-    def test_download_svn(self, tmpdir):
+    def test_download_svn(self, tmp_path, fake_process):
         url = 'svn+https://svn.example/project#egg=foo'
         index = setuptools.package_index.PackageIndex()
 
         msg = r".*SVN download is not supported.*"
         with pytest.raises(distutils.errors.DistutilsError, match=msg):
-            index.download(url, str(tmpdir))
+            index.download(url, str(tmp_path))
 
 
 class TestContentCheckers:
